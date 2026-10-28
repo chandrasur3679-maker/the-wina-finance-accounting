@@ -1,4 +1,4 @@
-const ACC={1101:['Kas','D'],1102:['Bank','D'],1103:['Piutang Usaha','D'],1104:['Persediaan','D'],1201:['Aset Tetap','D'],1202:['Akumulasi Penyusutan','K'],2101:['Utang Usaha','K'],2102:['Uang Muka Pelanggan','K'],3101:['Modal','K'],4101:['Pendapatan Kamar','K'],5101:['Beban Operasional','D'],5102:['Beban Penyusutan','D']};
+const ACC={1101:['Kas','D'],1102:['Bank','D'],1103:['Piutang Usaha','D'],1104:['Persediaan','D'],1201:['Aset Tetap','D'],1202:['Akumulasi Penyusutan','K'],2101:['Utang Usaha','K'],2102:['Uang Muka Pelanggan','K'],3101:['Modal','K'],3102:['Modal Saldo Awal','K'],4101:['Pendapatan Kamar','K'],5101:['Beban Operasional','D'],5102:['Beban Penyusutan','D']};
 const CATS=['Pendapatan Lain','Beban Operasional','Pembelian Aset','Uang Muka Pelanggan','Pelunasan Piutang','Pembayaran Utang','Transfer Antar Rekening','Setoran Modal / Saldo Awal','Penyusutan','Lainnya'];
 const ROOMS=['Kamar 1','Kamar 2','Kamar 3','Kamar 4','Kamar 5','Kamar 6'];
 const $=s=>document.querySelector(s);
@@ -45,27 +45,33 @@ $('#bsw').onclick=openUnits;
 const bal=a=>D().j.reduce((s,j)=>s+j.l.reduce((t,l)=>t+(l.a==a?l.d-l.c:0),0),0);
 const disp=a=>ACC[a][1]==='K'?-bal(a):bal(a);
 const accSel=(id)=>`<select id="${id}">${Object.entries(ACC).map(([k,v])=>`<option value="${k}">${k} · ${v[0]}</option>`).join('')}</select>`;
+const mk=w=>w&&w.kind==='Bank'?'Bank':'Tunai';
+const wbal=id=>D().j.reduce((s,j)=>s+j.l.reduce((t,l)=>t+(l.w===id?l.d-l.c:0),0),0);
+const wsel=id=>`<select id="${id}">${D().w.map(x=>`<option value="${x.id}">${esc(x.name)} (${Rp(wbal(x.id))})</option>`).join('')}</select>`;
 async function loadUnit(id){
+  let w=await db.from('wallets').select('id,name,kind,acc').eq('unit_id',id).order('created_at');
+  if(w.error)throw w.error;
+  if(!w.data.length){const i=await db.from('wallets').insert([{unit_id:id,name:'Kas Tunai',kind:'Kas',acc:1101},{unit_id:id,name:'Rekening Bank',kind:'Bank',acc:1102}]).select();if(i.error)throw i.error;w={data:i.data}}
   const[r,j,b]=await Promise.all([
     db.from('rooms').select('id,name').eq('unit_id',id).order('name'),
-    db.from('journals').select('*, journal_lines(account,debit,credit)').eq('unit_id',id).order('created_at'),
-    db.from('bookings').select('id,room_id,journal_id,guest,check_in,check_out').eq('unit_id',id)]);
+    db.from('journals').select('*, journal_lines(account,debit,credit,wallet_id)').eq('unit_id',id).order('created_at'),
+    db.from('bookings').select('id,room_id,journal_id,guest,check_in,check_out,total,paid').eq('unit_id',id)]);
   const err=r.error||j.error||b.error;if(err)throw err;
   const nm={};r.data.forEach(x=>nm[x.id]=x.name);
-  S.d[id]={n:j.data.length,rooms:r.data.map(x=>x.name),rid:Object.fromEntries(r.data.map(x=>[x.name,x.id])),
-    j:j.data.map(x=>({id:x.id,no:x.no,date:x.date,desc:x.descr,cat:x.category,method:x.method,note:x.note,st:x.status,l:x.journal_lines.map(l=>({a:l.account,d:+l.debit,c:+l.credit}))})),
-    b:b.data.map(x=>({id:x.id,room:nm[x.room_id],ci:x.check_in,co:x.check_out,guest:x.guest||''}))};
+  S.d[id]={n:j.data.length,w:w.data,rooms:r.data.map(x=>x.name),rid:Object.fromEntries(r.data.map(x=>[x.name,x.id])),
+    j:j.data.map(x=>({id:x.id,no:x.no,date:x.date,desc:x.descr,cat:x.category,method:x.method,note:x.note,st:x.status,l:x.journal_lines.map(l=>({a:l.account,d:+l.debit,c:+l.credit,w:l.wallet_id}))})),
+    b:b.data.map(x=>({id:x.id,room:nm[x.room_id],ci:x.check_in,co:x.check_out,guest:x.guest||'',total:+x.total,paid:+x.paid}))};
 }
 async function post(date,desc,cat,lines,method,note,extra={}){
   const td=lines.reduce((s,l)=>s+l.d,0),tc=lines.reduce((s,l)=>s+l.c,0);
   if(!lines.length||td<=0||Math.abs(td-tc)>0.005)throw new Error('Jurnal tidak seimbang: debit '+Rp(td)+' ≠ kredit '+Rp(tc));
-  const{error}=await db.rpc('post_journal',{p_unit:cur,p_date:date,p_desc:desc,p_cat:cat,p_method:method,p_note:note||'',p_lines:lines,p_reverses:extra.reverses||null,p_booking:extra.booking||null});
-  if(error)throw new Error(error.code==='23P01'?'Kamar sudah dipesan pada tanggal tersebut.':error.message);
+  const{error}=await db.rpc('post_journal',{p_unit:cur,p_date:date,p_desc:desc,p_cat:cat,p_method:method,p_note:note||'',p_lines:lines,p_reverses:extra.reverses||null,p_booking:extra.booking||null,p_pay_booking:extra.payBooking||null});
+  if(error)throw new Error(error.code==='23P01'?'Kamar sudah dipesan pada tanggal tersebut.':error.code==='23514'?'Nominal pembayaran melebihi sisa tagihan.':error.message);
   await loadUnit(cur);
 }
 
 // ---------- navigation ----------
-function nav(v){view=v;document.querySelectorAll('nav.foot button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));({home,hist,trx,room,cal}[v])();window.scrollTo(0,0)}
+function nav(v){view=v;document.querySelectorAll('nav.foot button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));({home,hist,trx,room,cal,wal,piu}[v])();window.scrollTo(0,0)}
 document.querySelectorAll('nav.foot button').forEach(b=>b.onclick=()=>nav(b.dataset.v));
 
 // ---------- home ----------
@@ -80,13 +86,14 @@ function home(){
     <div class="grid">${[['Kas',1101],['Bank',1102],['Piutang',1103],['Persediaan',1104]].map(x=>`<div class="stat">${x[0]}<b>${Rp(bal(x[1]))}</b></div>`).join('')}
     <div class="stat">Aset Tetap (perolehan)<b>${Rp(bal(1201))}</b></div><div class="stat">Akum. Penyusutan<b>${Rp(bal(1202))}</b></div><div class="stat">Nilai Buku Aset Tetap<b>${Rp(bal(1201)+bal(1202))}</b></div></div>
     <button class="btn sec sm" id="ca" style="margin-top:10px">Tutup</button></div></div>
+  <div class="panel glass" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" data-go="wal">🏦 Rekening & Saldo</button><button class="btn sec" data-go="piu">🧾 Piutang Reservasi</button></div>
   <div class="panel glass"><h2>Bulan Ini</h2><div class="grid" style="margin-top:10px"><div class="stat">Pendapatan<b>${Rp(pen)}</b></div><div class="stat">Beban<b>${Rp(beb)}</b></div><div class="stat">Laba / Rugi<b style="color:${pen-beb<0?'var(--er)':'var(--ok)'}">${Rp(pen-beb)}</b></div><div class="stat">Piutang<b>${Rp(bal(1103))}</b></div></div></div>
   <div class="panel glass"><h2>Neraca Saldo</h2><div class="scroll"><table><tr><th>Akun</th><th class="r">Debit</th><th class="r">Kredit</th></tr>
   ${tb.map(([a,b])=>`<tr><td>${a} · ${ACC[a][0]}</td><td class="r">${b>0?Rp(b):''}</td><td class="r">${b<0?Rp(-b):''}</td></tr>`).join('')||'<tr><td colspan=3 style="color:var(--mu)">Belum ada transaksi. Mulai dari menu Transaksi atau Kamar.</td></tr>'}
   </table></div></div>
   <div style="text-align:center"><button class="btn sec sm" id="th">🌓 Ganti tema</button></div>`;
-  $('#ta').onclick=()=>$('#ad').classList.remove('hide');$('#ca').onclick=()=>$('#ad').classList.add('hide');
-  $('#th').onclick=()=>{const r=document.documentElement,dk=matchMedia('(prefers-color-scheme:dark)').matches;const isDark=r.dataset.theme?r.dataset.theme==='dark':dk;r.dataset.theme=isDark?'light':'dark'};
+  document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go));$('#ta').onclick=()=>$('#ad').classList.remove('hide');$('#ca').onclick=()=>$('#ad').classList.add('hide');
+  $('#th').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'};
 }
 
 // ---------- input transaksi ----------
@@ -95,7 +102,7 @@ function trx(){
   <div class="row2"><div><label>Tanggal</label><input type="date" id="t_d" value="${today()}"></div><div><label>Kategori</label><select id="t_c">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
   <label>Deskripsi transaksi</label><input id="t_n" placeholder="mis. Beli perlengkapan kamar">
   <div class="row2"><div><label>Akun debit</label>${accSel('t_a')}</div><div><label>Akun kredit</label>${accSel('t_b')}</div></div>
-  <div class="row2"><div><label>Nominal (Rp)</label><input type="number" id="t_v" min="0" inputmode="numeric"></div><div><label>Metode pembayaran</label><select id="t_m"><option>Tunai</option><option>Bank</option><option>Lainnya</option></select></div></div>
+  <div class="row2"><div><label>Nominal (Rp)</label><input type="number" id="t_v" min="0" inputmode="numeric"></div><div><label>Rekening kas/bank (jika akun kas/bank dipakai)</label>${wsel('t_w')}</div></div>
   <label>Keterangan tambahan</label><textarea id="t_k" rows="2"></textarea>
   <div class="err" id="tm"></div>
   <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="ts">Simpan & Posting</button><button class="btn sec" id="tc">Batal</button></div></div>`;
@@ -106,14 +113,17 @@ function trx(){
     if(!n)return m.textContent='Deskripsi wajib diisi.';
     if(!(v>0))return m.textContent='Nominal harus lebih dari nol.';
     if(a===b)return m.textContent='Akun debit dan kredit tidak boleh sama.';
+    const cb=x=>x==1101||x==1102,wv=$('#t_w').value,wo=D().w.find(x=>x.id===wv);
+    if(cb(a)&&cb(b))return m.textContent='Perpindahan antar kas/bank dicatat lewat menu Rekening & Saldo (Transfer).';
+    if((cb(a)||cb(b))&&(!wo||wo.acc!=(cb(a)?a:b)))return m.textContent='Pilih rekening yang sesuai dengan akun Kas/Bank yang dipakai.';
     if(!confirm('Posting transaksi sebesar '+Rp(v)+'?'))return;
-    try{await post($('#t_d').value,n,$('#t_c').value,[{a,d:v,c:0},{a:b,d:0,c:v}],$('#t_m').value,$('#t_k').value);m.className='err okm';m.textContent='✔ Transaksi berhasil diposting.';$('#t_n').value='';$('#t_v').value=''}catch(e){m.textContent=e.message}};
+    try{await post($('#t_d').value,n,$('#t_c').value,[{a,d:v,c:0,w:cb(a)?wv:null},{a:b,d:0,c:v,w:cb(b)?wv:null}],cb(a)||cb(b)?mk(wo):'Lainnya',$('#t_k').value);m.className='err okm';m.textContent='✔ Transaksi berhasil diposting.';$('#t_n').value='';$('#t_v').value=''}catch(e){m.textContent=e.message}};
 }
 
 // ---------- riwayat ----------
 function hist(){
   $('#main').innerHTML=`<div class="panel glass"><h2>Riwayat Transaksi</h2>
-  <div class="row2"><div><input id="h_q" placeholder="Cari deskripsi / nomor / akun" value="${esc(hf.q)}"></div><div><select id="h_c"><option value="">Semua kategori</option>${CATS.concat(['Pendapatan Kamar','Koreksi']).map(c=>`<option ${hf.c===c?'selected':''}>${c}</option>`).join('')}</select></div></div>
+  <div class="row2"><div><input id="h_q" placeholder="Cari deskripsi / nomor / akun" value="${esc(hf.q)}"></div><div><select id="h_c"><option value="">Semua kategori</option>${CATS.concat(['Pendapatan Kamar','Koreksi','Saldo Awal']).map(c=>`<option ${hf.c===c?'selected':''}>${c}</option>`).join('')}</select></div></div>
   <div class="row2" style="margin-top:6px"><select id="h_m"><option value="">Semua metode</option>${['Tunai','Bank','Lainnya'].map(c=>`<option ${hf.m===c?'selected':''}>${c}</option>`).join('')}</select><button class="btn sec" id="h_s">Urutan: ${hf.asc?'Terlama ↑':'Terbaru ↓'}</button></div>
   <div class="scroll" style="margin-top:10px" id="h_t"></div></div>`;
   const draw=()=>{const q=hf.q.toLowerCase();
@@ -138,7 +148,7 @@ function room(){
   <div class="row2"><div><label>Tarif per malam (Rp)</label><input type="number" id="r_t" min="0"></div><div><label>Diskon (Rp)</label><input type="number" id="r_x" min="0" value="0"></div></div>
   <div class="stat" style="margin-top:10px">Jumlah malam: <b id="r_n" style="display:inline">0</b> · Total pendapatan: <b id="r_tot" style="display:inline">Rp 0</b></div>
   <div class="row2"><div><label>Status pembayaran</label><select id="r_s"><option>Lunas</option><option>DP / Sebagian</option><option>Belum bayar</option></select></div><div><label>Dibayar (Rp)</label><input type="number" id="r_p" min="0" value="0"></div></div>
-  <div class="row2"><div><label>Metode</label><select id="r_m"><option>Tunai</option><option>Bank</option></select></div><div><label>Sumber pemesanan</label><select id="r_src"><option>Langsung</option><option>OTA</option><option>Lainnya</option></select></div></div>
+  <div class="row2"><div><label>Diterima di rekening</label>${wsel('r_m')}</div><div><label>Sumber pemesanan</label><select id="r_src"><option>Langsung</option><option>OTA</option><option>Lainnya</option></select></div></div>
   <label>Catatan</label><input id="r_k">
   <div class="stat" style="margin-top:10px">Saldo piutang: <b id="r_pi" style="display:inline">Rp 0</b></div>
   <div class="err" id="rm"></div><button class="btn" id="rs">Simpan Pendapatan</button></div>`;
@@ -152,9 +162,9 @@ function room(){
     if(p<0||p>tot)return m.textContent='Nominal dibayar tidak valid (0 sampai total).';
     const clash=D().b.find(b=>b.room===rm&&ci<b.co&&co>b.ci);
     if(clash)return m.textContent=`Bentrok! ${rm} sudah dipesan ${clash.ci} s/d ${clash.co} (${clash.guest||'tanpa nama'}).`;
-    const bk='B'+Date.now(),pay=$('#r_m').value==='Bank'?1102:1101,L=[];
-    if(p>0)L.push({a:pay,d:p,c:0});if(tot-p>0)L.push({a:1103,d:tot-p,c:0});L.push({a:4101,d:0,c:tot});
-    try{await post($('#r_d').value,`Kamar ${rm} – ${$('#r_g').value||'tamu'} (${n} malam, ${$('#r_src').value})`,'Pendapatan Kamar',L,$('#r_m').value,$('#r_k').value,{booking:{room:D().rid[rm],guest:$('#r_g').value.trim(),ci,co}});m.className='err okm';m.textContent='✔ Tersimpan. Kalender kamar sudah diperbarui.'}catch(e){m.textContent=e.message}};
+    const bk='B'+Date.now(),wo=D().w.find(x=>x.id===$('#r_m').value),pay=wo.acc,L=[];
+    if(p>0)L.push({a:pay,d:p,c:0,w:wo.id});if(tot-p>0)L.push({a:1103,d:tot-p,c:0});L.push({a:4101,d:0,c:tot});
+    try{await post($('#r_d').value,`Kamar ${rm} – ${$('#r_g').value||'tamu'} (${n} malam, ${$('#r_src').value})`,'Pendapatan Kamar',L,mk(wo),$('#r_k').value,{booking:{room:D().rid[rm],guest:$('#r_g').value.trim(),ci,co,total:tot,paid:p}});m.className='err okm';m.textContent='✔ Tersimpan. Kalender kamar sudah diperbarui.'}catch(e){m.textContent=e.message}};
 }
 
 // ---------- kalender ----------
@@ -179,4 +189,55 @@ function cal(){
   document.querySelectorAll('.cl.bk').forEach(c=>c.onclick=()=>{const b=B.find(x=>x.id===c.dataset.b);alert(`${b.room}\nTamu: ${b.guest||'-'}\nCheck-in: ${b.ci}\nCheck-out: ${b.co}`)});
   document.querySelectorAll('.cl[data-r]').forEach(c=>c.onclick=()=>{pre={room:R[+c.dataset.r],ci:c.dataset.d};nav('room')});
 }
+// ---------- rekening, transfer, saldo awal ----------
+function wal(){
+  const W=D().w,un=[1101,1102].map(a=>[a,bal(a)-W.filter(x=>x.acc===a).reduce((s,x)=>s+wbal(x.id),0)]).filter(x=>Math.abs(x[1])>.004);
+  const opt=Object.entries(ACC).filter(([k])=>k<3000).map(([k,v])=>`<option value="${k}">${k} · ${v[0]}</option>`).join('');
+  $('#main').innerHTML=`
+  <div class="panel glass"><h2>Rekening Kas & Bank</h2><div class="scroll"><table><tr><th>Rekening</th><th>Jenis</th><th class="r">Saldo</th></tr>
+  ${W.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.kind}</td><td class="r">${Rp(wbal(x.id))}</td></tr>`).join('')}
+  ${un.map(x=>`<tr><td colspan=2 style="color:var(--mu)">Belum dialokasikan (${ACC[x[0]][0]})</td><td class="r">${Rp(x[1])}</td></tr>`).join('')}</table></div>
+  <div class="row2"><div><label>Nama rekening baru</label><input id="w_n" placeholder="mis. BCA Operasional"></div><div><label>Jenis</label><select id="w_k"><option>Bank</option><option>Kas</option></select></div></div>
+  <div class="err" id="wm1"></div><button class="btn sm" id="w_a">＋ Tambah Rekening</button></div>
+  <div class="panel glass"><h2>Transfer Antar Rekening</h2>
+  <div class="row2"><div><label>Tanggal</label><input type="date" id="x_d" value="${today()}"></div><div><label>Nominal (Rp)</label><input type="number" id="x_v" min="0"></div></div>
+  <div class="row2"><div><label>Dari rekening</label>${wsel('x_f')}</div><div><label>Ke rekening</label>${wsel('x_t')}</div></div>
+  <label>Keterangan</label><input id="x_k"><div class="err" id="wm2"></div><button class="btn" id="x_b">Transfer</button></div>
+  <div class="panel glass"><h2>Saldo Awal</h2><p style="color:var(--mu);font-size:13px;margin:4px 0 0">Dicatat sebagai Modal Saldo Awal, bukan pendapatan.</p>
+  <div class="row2"><div><label>Tanggal</label><input type="date" id="s_d" value="${today()}"></div><div><label>Akun</label><select id="s_a">${opt}</select></div></div>
+  <div class="row2"><div><label>Rekening (khusus Kas/Bank)</label>${wsel('s_w')}</div><div><label>Nominal (Rp)</label><input type="number" id="s_v" min="0"></div></div>
+  <div class="err" id="wm3"></div><button class="btn" id="s_b">Simpan Saldo Awal</button></div>`;
+  const ok=(id,t)=>{$(id).className='err okm';$(id).textContent=t};
+  $('#w_a').onclick=async()=>{const n=$('#w_n').value.trim(),k=$('#w_k').value,m=$('#wm1');m.className='err';if(!n)return m.textContent='Nama rekening wajib diisi.';
+    const{error}=await db.from('wallets').insert({unit_id:cur,name:n,kind:k,acc:k==='Bank'?1102:1101});if(error)return m.textContent=error.code==='23505'?'Nama rekening sudah ada.':error.message;await loadUnit(cur);wal()};
+  $('#x_b').onclick=async()=>{const m=$('#wm2'),f=D().w.find(x=>x.id===$('#x_f').value),t=D().w.find(x=>x.id===$('#x_t').value),v=+$('#x_v').value;m.className='err';
+    if(!f||!t||f.id===t.id)return m.textContent='Pilih dua rekening yang berbeda.';
+    if(!(v>0))return m.textContent='Nominal harus lebih dari nol.';
+    if(v>wbal(f.id))return m.textContent='Saldo '+f.name+' tidak cukup ('+Rp(wbal(f.id))+').';
+    if(!confirm(`Transfer ${Rp(v)} dari ${f.name} ke ${t.name}?`))return;
+    try{await post($('#x_d').value,`Transfer ${f.name} → ${t.name}`,'Transfer Antar Rekening',[{a:t.acc,d:v,c:0,w:t.id},{a:f.acc,d:0,c:v,w:f.id}],mk(t),$('#x_k').value);wal();ok('#wm2','✔ Transfer berhasil.')}catch(e){m.textContent=e.message}};
+  $('#s_b').onclick=async()=>{const m=$('#wm3'),a=+$('#s_a').value,v=+$('#s_v').value,cb=a==1101||a==1102,wo=D().w.find(x=>x.id===$('#s_w').value);m.className='err';
+    if(!(v>0))return m.textContent='Nominal harus lebih dari nol.';
+    if(cb&&(!wo||wo.acc!==a))return m.textContent='Pilih rekening yang sesuai dengan akun Kas/Bank.';
+    if(!confirm(`Catat saldo awal ${ACC[a][0]} sebesar ${Rp(v)}?`))return;
+    const L=ACC[a][1]==='D'?[{a,d:v,c:0,w:cb?wo.id:null},{a:3102,d:0,c:v}]:[{a:3102,d:v,c:0},{a,d:0,c:v}];
+    try{await post($('#s_d').value,'Saldo awal '+ACC[a][0],'Saldo Awal',L,cb?mk(wo):'Lainnya','');wal();ok('#wm3','✔ Saldo awal tersimpan.')}catch(e){m.textContent=e.message}};
+}
+
+// ---------- piutang reservasi ----------
+function piu(){
+  const B=D().b.filter(b=>b.total-b.paid>.004),tot=B.reduce((s,b)=>s+b.total-b.paid,0),lama=bal(1103)-D().b.reduce((s,b)=>s+b.total-b.paid,0);
+  $('#main').innerHTML=`<div class="panel glass"><h2>Piutang Reservasi</h2><div class="stat" style="margin:10px 0">Total belum dibayar<b>${Rp(tot)}</b></div>
+  <div class="scroll"><table><tr><th>Reservasi</th><th class="r">Total</th><th class="r">Dibayar</th><th class="r">Sisa</th><th></th></tr>
+  ${B.map(b=>`<tr><td>${esc(b.room)}<br><small>${esc(b.guest||'-')} · ${b.ci} → ${b.co}</small></td><td class="r">${Rp(b.total)}</td><td class="r">${Rp(b.paid)}</td><td class="r">${Rp(b.total-b.paid)}</td><td><button class="btn sm" data-p="${b.id}">Terima</button></td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada piutang reservasi.</td></tr>'}</table></div>
+  ${Math.abs(lama)>.004?`<p style="font-size:12px;color:var(--mu)">Piutang di luar reservasi: ${Rp(lama)} (pelunasannya dicatat lewat menu Transaksi).</p>`:''}<div id="pf"></div></div>`;
+  document.querySelectorAll('[data-p]').forEach(btn=>btn.onclick=()=>{const b=D().b.find(x=>x.id===btn.dataset.p),sisa=b.total-b.paid;
+    $('#pf').innerHTML=`<h3 style="margin-top:14px;font-size:15px">Pelunasan ${esc(b.room)} – ${esc(b.guest||'tamu')}</h3>
+    <div class="row2"><div><label>Tanggal</label><input type="date" id="p_d" value="${today()}"></div><div><label>Nominal (Rp)</label><input type="number" id="p_v" value="${sisa}" min="0"></div></div>
+    <label>Diterima di rekening</label>${wsel('p_w')}<label>Catatan</label><input id="p_k"><div class="err" id="pm"></div><button class="btn" id="p_b">Simpan Pelunasan</button>`;
+    $('#p_b').onclick=async()=>{const v=+$('#p_v').value,w=D().w.find(x=>x.id===$('#p_w').value),m=$('#pm');m.className='err';
+      if(!(v>0)||v>sisa+.004)return m.textContent='Nominal harus lebih dari nol dan tidak melebihi sisa '+Rp(sisa)+'.';
+      try{await post($('#p_d').value,`Pelunasan ${b.room} – ${b.guest||'tamu'}`,'Pelunasan Piutang',[{a:w.acc,d:v,c:0,w:w.id},{a:1103,d:0,c:v}],mk(w),$('#p_k').value,{payBooking:b.id});piu()}catch(e){m.textContent=e.message}}});
+}
+
 db.auth.getSession().then(({data})=>{if(data.session)openUnits()});
