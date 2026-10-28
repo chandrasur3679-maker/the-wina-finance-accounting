@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Wina Finance</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="login" class="center">
+  <div class="logo pic"><img src="logo.png" alt="The Wina" style="width:100%;height:100%;object-fit:contain;display:block"></div><h1>The Wina Finance</h1>
+  <form class="glass card" onsubmit="return false">
+    <label>Kata sandi</label>
+    <div class="pw"><input id="pw" type="password" autocomplete="current-password"><button type="button" id="eye" title="Tampilkan/sembunyikan">👁</button></div>
+    <div class="err" id="lerr"></div>
+    <button class="btn" id="lbtn" style="width:100%;margin-top:8px">Masuk</button>
+    
+  </form>
+</section>
+
+<section id="units" class="center hide">
+  <div class="logo pic"><img src="logo.png" alt="The Wina" style="width:100%;height:100%;object-fit:contain;display:block"></div><h2>Pilih Unit Usaha</h2>
+  <div class="units" id="ulist"></div>
+  <button class="btn sec" id="lo1">Keluar</button>
+</section>
+
+<section id="app" class="hide">
+  <header class="top glass">
+    <div><span class="nm"><span class="dot"></span><span id="hu"></span></span><small>The Wina Finance · <span id="hd"></span></small></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn sec sm" id="bsw">Ganti Unit</button>
+      <button class="btn sec sm" id="bset" title="Pengaturan keamanan">🔒</button>
+      <button class="btn sec sm" id="blo">Logout</button>
+    </div>
+  </header>
+  <main id="main"></main>
+  <nav class="foot glass">
+  <button data-v="hist" title="Riwayat Transaksi"><img src="history (1).png" alt="">Riwayat</button>
+  <button data-v="trx" title="Input Transaksi"><img src="invoice.png" alt="">Transaksi</button>
+  <button data-v="home" title="Home"><img src="house.png" alt="">Home</button>
+  <button data-v="room" title="Pendapatan Kamar"><img src="bedroom.png" alt="">Kamar</button>
+  <button data-v="cal" title="Kalender Ketersediaan"><img src="schedule.png" alt="">Kalender</button>
+</nav>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

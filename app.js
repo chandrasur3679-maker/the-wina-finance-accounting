@@ -1,0 +1,182 @@
+const ACC={1101:['Kas','D'],1102:['Bank','D'],1103:['Piutang Usaha','D'],1104:['Persediaan','D'],1201:['Aset Tetap','D'],1202:['Akumulasi Penyusutan','K'],2101:['Utang Usaha','K'],2102:['Uang Muka Pelanggan','K'],3101:['Modal','K'],4101:['Pendapatan Kamar','K'],5101:['Beban Operasional','D'],5102:['Beban Penyusutan','D']};
+const CATS=['Pendapatan Lain','Beban Operasional','Pembelian Aset','Uang Muka Pelanggan','Pelunasan Piutang','Pembayaran Utang','Transfer Antar Rekening','Setoran Modal / Saldo Awal','Penyusutan','Lainnya'];
+const ROOMS=['Kamar 1','Kamar 2','Kamar 3','Kamar 4','Kamar 5','Kamar 6'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const Rp=n=>(n<0?'-':'')+'Rp '+Math.abs(Math.round(n)).toLocaleString('id-ID');
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+async function hash(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+let pre=null,S,cur,view='home',calM=new Date(),calRoom=ROOMS[0],hf={q:'',m:'',c:'',asc:false};
+
+S={units:[],d:{}};
+const rooms=()=>D().rooms??=ROOMS.slice(0,4);
+const save=()=>{};
+const ROOMS0=null;const D=()=>S.d[cur]??={j:[],b:[],n:0};
+const show=id=>{['login','units','app'].forEach(x=>$('#'+x).classList.toggle('hide',x!==id))};
+
+// ---------- login ----------
+$('#eye').onclick=()=>{const p=$('#pw');p.type=p.type==='password'?'text':'password'};
+$('#lbtn').onclick=async()=>{
+  $('#lerr').textContent='';$('#lbtn').disabled=true;
+  const{error}=await db.auth.signInWithPassword({email:OWNER_EMAIL,password:$('#pw').value});
+  $('#lbtn').disabled=false;
+  if(error)return $('#lerr').textContent='Kata sandi salah atau koneksi bermasalah.';
+  $('#pw').value='';openUnits();
+};
+$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#lbtn').click()};
+$('#lo1').onclick=$('#blo').onclick=async()=>{await db.auth.signOut();S.d={};show('login')};
+$('#bset').onclick=async()=>{const p=prompt('Kata sandi baru (min. 6 karakter):');if(!p)return;if(p.length<6)return alert('Terlalu pendek.');const{error}=await db.auth.updateUser({password:p});alert(error?error.message:'Kata sandi diganti.')};
+
+// ---------- units ----------
+async function openUnits(){
+  show('units');const{data,error}=await db.from('units').select('id,name,info').order('created_at');if(error)return alert(error.message);S.units=data;$('#ulist').innerHTML=S.units.map(u=>`<div class="unit glass" data-id="${u.id}"><div class="ic">🏡</div><h3>${esc(u.name)}</h3><small style="color:var(--mu)">${esc(u.info||'Unit usaha')}</small></div>`).join('')+`<div class="unit add glass" id="addu"><div class="ic">＋</div><h3>Tambah Unit Usaha Baru</h3></div>`;
+  document.querySelectorAll('.unit[data-id]').forEach(el=>el.onclick=()=>{el.classList.add('go');setTimeout(()=>enter(el.dataset.id),550)});
+  $('#addu').onclick=async()=>{const n=prompt('Nama unit usaha:');if(!n||!n.trim())return;const i=prompt('Informasi dasar (alamat/keterangan, opsional):')||'';
+    const{data,error}=await db.from('units').insert({name:n.trim(),info:i.trim()}).select().single();if(error)return alert(error.message);
+    await db.from('rooms').insert(['Kamar 1','Kamar 2','Kamar 3','Kamar 4'].map(x=>({unit_id:data.id,name:x})));openUnits()};
+}
+async function enter(id){cur=id;try{await loadUnit(id)}catch(e){alert('Gagal memuat data: '+e.message);return}show('app');const a=$('#app');a.classList.remove('enter');void a.offsetWidth;a.classList.add('enter');
+  $('#hu').textContent=S.units.find(u=>u.id===id).name;
+  $('#hd').textContent=new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  nav('home')}
+$('#bsw').onclick=openUnits;
+
+// ---------- accounting ----------
+const bal=a=>D().j.reduce((s,j)=>s+j.l.reduce((t,l)=>t+(l.a==a?l.d-l.c:0),0),0);
+const disp=a=>ACC[a][1]==='K'?-bal(a):bal(a);
+const accSel=(id)=>`<select id="${id}">${Object.entries(ACC).map(([k,v])=>`<option value="${k}">${k} · ${v[0]}</option>`).join('')}</select>`;
+async function loadUnit(id){
+  const[r,j,b]=await Promise.all([
+    db.from('rooms').select('id,name').eq('unit_id',id).order('name'),
+    db.from('journals').select('*, journal_lines(account,debit,credit)').eq('unit_id',id).order('created_at'),
+    db.from('bookings').select('id,room_id,journal_id,guest,check_in,check_out').eq('unit_id',id)]);
+  const err=r.error||j.error||b.error;if(err)throw err;
+  const nm={};r.data.forEach(x=>nm[x.id]=x.name);
+  S.d[id]={n:j.data.length,rooms:r.data.map(x=>x.name),rid:Object.fromEntries(r.data.map(x=>[x.name,x.id])),
+    j:j.data.map(x=>({id:x.id,no:x.no,date:x.date,desc:x.descr,cat:x.category,method:x.method,note:x.note,st:x.status,l:x.journal_lines.map(l=>({a:l.account,d:+l.debit,c:+l.credit}))})),
+    b:b.data.map(x=>({id:x.id,room:nm[x.room_id],ci:x.check_in,co:x.check_out,guest:x.guest||''}))};
+}
+async function post(date,desc,cat,lines,method,note,extra={}){
+  const td=lines.reduce((s,l)=>s+l.d,0),tc=lines.reduce((s,l)=>s+l.c,0);
+  if(!lines.length||td<=0||Math.abs(td-tc)>0.005)throw new Error('Jurnal tidak seimbang: debit '+Rp(td)+' ≠ kredit '+Rp(tc));
+  const{error}=await db.rpc('post_journal',{p_unit:cur,p_date:date,p_desc:desc,p_cat:cat,p_method:method,p_note:note||'',p_lines:lines,p_reverses:extra.reverses||null,p_booking:extra.booking||null});
+  if(error)throw new Error(error.code==='23P01'?'Kamar sudah dipesan pada tanggal tersebut.':error.message);
+  await loadUnit(cur);
+}
+
+// ---------- navigation ----------
+function nav(v){view=v;document.querySelectorAll('nav.foot button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));({home,hist,trx,room,cal}[v])();window.scrollTo(0,0)}
+document.querySelectorAll('nav.foot button').forEach(b=>b.onclick=()=>nav(b.dataset.v));
+
+// ---------- home ----------
+function home(){
+  const m=today().slice(0,7),d=D();
+  let pen=0,beb=0;d.j.filter(j=>j.date.startsWith(m)).forEach(j=>j.l.forEach(l=>{const a=String(l.a);if(a[0]=='4')pen+=l.c-l.d;if(a[0]=='5')beb+=l.d-l.c}));
+  const tot=[1101,1102,1103,1104,1201,1202].reduce((s,a)=>s+bal(a),0);
+  const tb=Object.keys(ACC).map(a=>[a,bal(a)]).filter(x=>Math.abs(x[1])>0.004);
+  $('#main').innerHTML=`
+  <div class="panel glass"><div style="display:flex;justify-content:space-between;align-items:center"><h2>Ringkasan Aset</h2><button class="btn sm" id="ta">💰 Lihat Aset</button></div>
+    <div id="ad" class="hide" style="margin-top:12px"><div class="stat" style="margin-bottom:10px">Total Aset<b style="font-size:22px">${Rp(tot)}</b></div>
+    <div class="grid">${[['Kas',1101],['Bank',1102],['Piutang',1103],['Persediaan',1104]].map(x=>`<div class="stat">${x[0]}<b>${Rp(bal(x[1]))}</b></div>`).join('')}
+    <div class="stat">Aset Tetap (perolehan)<b>${Rp(bal(1201))}</b></div><div class="stat">Akum. Penyusutan<b>${Rp(bal(1202))}</b></div><div class="stat">Nilai Buku Aset Tetap<b>${Rp(bal(1201)+bal(1202))}</b></div></div>
+    <button class="btn sec sm" id="ca" style="margin-top:10px">Tutup</button></div></div>
+  <div class="panel glass"><h2>Bulan Ini</h2><div class="grid" style="margin-top:10px"><div class="stat">Pendapatan<b>${Rp(pen)}</b></div><div class="stat">Beban<b>${Rp(beb)}</b></div><div class="stat">Laba / Rugi<b style="color:${pen-beb<0?'var(--er)':'var(--ok)'}">${Rp(pen-beb)}</b></div><div class="stat">Piutang<b>${Rp(bal(1103))}</b></div></div></div>
+  <div class="panel glass"><h2>Neraca Saldo</h2><div class="scroll"><table><tr><th>Akun</th><th class="r">Debit</th><th class="r">Kredit</th></tr>
+  ${tb.map(([a,b])=>`<tr><td>${a} · ${ACC[a][0]}</td><td class="r">${b>0?Rp(b):''}</td><td class="r">${b<0?Rp(-b):''}</td></tr>`).join('')||'<tr><td colspan=3 style="color:var(--mu)">Belum ada transaksi. Mulai dari menu Transaksi atau Kamar.</td></tr>'}
+  </table></div></div>
+  <div style="text-align:center"><button class="btn sec sm" id="th">🌓 Ganti tema</button></div>`;
+  $('#ta').onclick=()=>$('#ad').classList.remove('hide');$('#ca').onclick=()=>$('#ad').classList.add('hide');
+  $('#th').onclick=()=>{const r=document.documentElement,dk=matchMedia('(prefers-color-scheme:dark)').matches;const isDark=r.dataset.theme?r.dataset.theme==='dark':dk;r.dataset.theme=isDark?'light':'dark'};
+}
+
+// ---------- input transaksi ----------
+function trx(){
+  $('#main').innerHTML=`<div class="panel glass"><h2>Input Transaksi</h2><p style="color:var(--mu);font-size:13px;margin:4px 0 0">Unit: <b>${esc($('#hu').textContent)}</b> · setiap jurnal otomatis seimbang (debit = kredit)</p>
+  <div class="row2"><div><label>Tanggal</label><input type="date" id="t_d" value="${today()}"></div><div><label>Kategori</label><select id="t_c">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
+  <label>Deskripsi transaksi</label><input id="t_n" placeholder="mis. Beli perlengkapan kamar">
+  <div class="row2"><div><label>Akun debit</label>${accSel('t_a')}</div><div><label>Akun kredit</label>${accSel('t_b')}</div></div>
+  <div class="row2"><div><label>Nominal (Rp)</label><input type="number" id="t_v" min="0" inputmode="numeric"></div><div><label>Metode pembayaran</label><select id="t_m"><option>Tunai</option><option>Bank</option><option>Lainnya</option></select></div></div>
+  <label>Keterangan tambahan</label><textarea id="t_k" rows="2"></textarea>
+  <div class="err" id="tm"></div>
+  <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="ts">Simpan & Posting</button><button class="btn sec" id="tc">Batal</button></div></div>`;
+  $('#t_a').value=1101;$('#t_b').value=4101;
+  $('#tc').onclick=()=>nav('home');
+  $('#ts').onclick=async()=>{const m=$('#tm'),v=+$('#t_v').value,a=+$('#t_a').value,b=+$('#t_b').value,n=$('#t_n').value.trim();m.className='err';
+    if(!$('#t_d').value)return m.textContent='Tanggal wajib diisi.';
+    if(!n)return m.textContent='Deskripsi wajib diisi.';
+    if(!(v>0))return m.textContent='Nominal harus lebih dari nol.';
+    if(a===b)return m.textContent='Akun debit dan kredit tidak boleh sama.';
+    if(!confirm('Posting transaksi sebesar '+Rp(v)+'?'))return;
+    try{await post($('#t_d').value,n,$('#t_c').value,[{a,d:v,c:0},{a:b,d:0,c:v}],$('#t_m').value,$('#t_k').value);m.className='err okm';m.textContent='✔ Transaksi berhasil diposting.';$('#t_n').value='';$('#t_v').value=''}catch(e){m.textContent=e.message}};
+}
+
+// ---------- riwayat ----------
+function hist(){
+  $('#main').innerHTML=`<div class="panel glass"><h2>Riwayat Transaksi</h2>
+  <div class="row2"><div><input id="h_q" placeholder="Cari deskripsi / nomor / akun" value="${esc(hf.q)}"></div><div><select id="h_c"><option value="">Semua kategori</option>${CATS.concat(['Pendapatan Kamar','Koreksi']).map(c=>`<option ${hf.c===c?'selected':''}>${c}</option>`).join('')}</select></div></div>
+  <div class="row2" style="margin-top:6px"><select id="h_m"><option value="">Semua metode</option>${['Tunai','Bank','Lainnya'].map(c=>`<option ${hf.m===c?'selected':''}>${c}</option>`).join('')}</select><button class="btn sec" id="h_s">Urutan: ${hf.asc?'Terlama ↑':'Terbaru ↓'}</button></div>
+  <div class="scroll" style="margin-top:10px" id="h_t"></div></div>`;
+  const draw=()=>{const q=hf.q.toLowerCase();
+    let L=D().j.filter(j=>(!hf.c||j.cat===hf.c)&&(!hf.m||j.method===hf.m)&&(!q||(j.desc+j.no+j.l.map(l=>ACC[l.a][0]).join(' ')).toLowerCase().includes(q)));
+    L.sort((a,b)=>(a.date+a.id).localeCompare(b.date+b.id)*(hf.asc?1:-1));
+    $('#h_t').innerHTML=`<table><tr><th>Tanggal / No</th><th>Deskripsi & Akun</th><th class="r">Debit</th><th class="r">Kredit</th><th>Status</th></tr>`+(L.map(j=>`<tr><td>${j.date}<br><small>${j.no}</small></td><td>${esc(j.desc)}<br><small style="color:var(--mu)">${esc(j.cat)} · ${esc(j.method)}${j.note?' · '+esc(j.note):''}</small><br>${j.l.map(l=>`<small>${l.d?'Dr':'&nbsp;&nbsp;Kr'} ${ACC[l.a][0]}</small>`).join('<br>')}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.d,0))}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.c,0))}</td><td><span class="tag">${j.st}</span>${j.st==='Posted'?`<br><button class="btn sec sm" data-r="${j.id}" style="margin-top:6px">Balik</button>`:''}</td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada transaksi.</td></tr>')+'</table>';
+    document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>reverse(b.dataset.r));};
+  $('#h_q').oninput=e=>{hf.q=e.target.value;draw()};$('#h_c').onchange=e=>{hf.c=e.target.value;draw()};$('#h_m').onchange=e=>{hf.m=e.target.value;draw()};
+  $('#h_s').onclick=()=>{hf.asc=!hf.asc;hist()};draw();
+}
+async function reverse(id){const o=D().j.find(j=>j.id===id);if(!o||!confirm('Buat jurnal pembalik untuk '+o.no+'? Transaksi asli tetap tersimpan sebagai jejak audit.'))return;
+  const alasan=prompt('Alasan koreksi:')||'-';
+  try{await post(today(),'Pembalikan '+o.no+': '+o.desc,'Koreksi',o.l.map(l=>({a:l.a,d:l.c,c:l.d})),o.method,'Alasan: '+alasan,{reverses:id})}catch(e){alert(e.message)}
+  hist()}
+
+// ---------- pendapatan kamar ----------
+function room(){
+  $('#main').innerHTML=`<div class="panel glass"><h2>Pendapatan Kamar</h2>
+  <div class="row2"><div><label>Tanggal transaksi</label><input type="date" id="r_d" value="${today()}"></div><div><label>Kamar</label><select id="r_r">${rooms().map(r=>`<option>${esc(r)}</option>`).join('')}</select></div></div>
+  <label>Nama tamu / kode reservasi</label><input id="r_g">
+  <div class="row2"><div><label>Check-in</label><input type="date" id="r_i" value="${today()}"></div><div><label>Check-out</label><input type="date" id="r_o"></div></div>
+  <div class="row2"><div><label>Tarif per malam (Rp)</label><input type="number" id="r_t" min="0"></div><div><label>Diskon (Rp)</label><input type="number" id="r_x" min="0" value="0"></div></div>
+  <div class="stat" style="margin-top:10px">Jumlah malam: <b id="r_n" style="display:inline">0</b> · Total pendapatan: <b id="r_tot" style="display:inline">Rp 0</b></div>
+  <div class="row2"><div><label>Status pembayaran</label><select id="r_s"><option>Lunas</option><option>DP / Sebagian</option><option>Belum bayar</option></select></div><div><label>Dibayar (Rp)</label><input type="number" id="r_p" min="0" value="0"></div></div>
+  <div class="row2"><div><label>Metode</label><select id="r_m"><option>Tunai</option><option>Bank</option></select></div><div><label>Sumber pemesanan</label><select id="r_src"><option>Langsung</option><option>OTA</option><option>Lainnya</option></select></div></div>
+  <label>Catatan</label><input id="r_k">
+  <div class="stat" style="margin-top:10px">Saldo piutang: <b id="r_pi" style="display:inline">Rp 0</b></div>
+  <div class="err" id="rm"></div><button class="btn" id="rs">Simpan Pendapatan</button></div>`;
+  const calc=()=>{const n=Math.round((new Date($('#r_o').value)-new Date($('#r_i').value))/864e5)||0;const tot=Math.max(0,n*(+$('#r_t').value||0)-(+$('#r_x').value||0));
+    const st=$('#r_s').value;if(st==='Lunas')$('#r_p').value=tot;if(st==='Belum bayar')$('#r_p').value=0;
+    $('#r_n').textContent=n;$('#r_tot').textContent=Rp(tot);$('#r_pi').textContent=Rp(tot-(+$('#r_p').value||0));return{n,tot}};
+  ['r_i','r_o','r_t','r_x','r_s','r_p'].forEach(i=>$('#'+i).oninput=calc);$('#r_s').onchange=calc;if(pre){$('#r_r').value=pre.room;$('#r_i').value=pre.ci;pre=null}
+  $('#rs').onclick=async()=>{const{n,tot}=calc(),m=$('#rm'),p=+$('#r_p').value||0,rm=$('#r_r').value,ci=$('#r_i').value,co=$('#r_o').value;m.className='err';
+    if(n<=0)return m.textContent='Check-out harus setelah check-in.';
+    if(!(tot>0))return m.textContent='Total pendapatan harus lebih dari nol.';
+    if(p<0||p>tot)return m.textContent='Nominal dibayar tidak valid (0 sampai total).';
+    const clash=D().b.find(b=>b.room===rm&&ci<b.co&&co>b.ci);
+    if(clash)return m.textContent=`Bentrok! ${rm} sudah dipesan ${clash.ci} s/d ${clash.co} (${clash.guest||'tanpa nama'}).`;
+    const bk='B'+Date.now(),pay=$('#r_m').value==='Bank'?1102:1101,L=[];
+    if(p>0)L.push({a:pay,d:p,c:0});if(tot-p>0)L.push({a:1103,d:tot-p,c:0});L.push({a:4101,d:0,c:tot});
+    try{await post($('#r_d').value,`Kamar ${rm} – ${$('#r_g').value||'tamu'} (${n} malam, ${$('#r_src').value})`,'Pendapatan Kamar',L,$('#r_m').value,$('#r_k').value,{booking:{room:D().rid[rm],guest:$('#r_g').value.trim(),ci,co}});m.className='err okm';m.textContent='✔ Tersimpan. Kalender kamar sudah diperbarui.'}catch(e){m.textContent=e.message}};
+}
+
+// ---------- kalender ----------
+function cal(){
+  const y=calM.getFullYear(),mo=calM.getMonth(),days=new Date(y,mo+1,0).getDate(),R=rooms(),B=D().b,t=today();
+  const iso=d=>`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd=['Mi','Se','Sl','Ra','Ka','Ju','Sa'];
+  let g=`<div class="tl" style="grid-template-columns:120px repeat(${days},40px)"><div class="rn hd">Kamar</div>`;
+  for(let d=1;d<=days;d++)g+=`<div class="dh${iso(d)===t?' td':''}"><small>${wd[new Date(y,mo,d).getDay()]}</small>${d}</div>`;
+  R.forEach((r,ri)=>{g+=`<div class="rn"><span>${esc(r)}</span><button data-del="${ri}" title="Hapus kamar">✕</button></div>`;
+    for(let d=1;d<=days;d++){const i=iso(d),b=B.find(b=>b.room===r&&i>=b.ci&&i<b.co);
+      g+=b?`<div class="cl bk" data-b="${b.id}">${i===b.ci||d===1?esc((b.guest||'•').slice(0,6)):''}</div>`:`<div class="cl" data-r="${ri}" data-d="${i}"></div>`}});
+  g+='</div>';
+  const mb=B.filter(b=>b.ci<=iso(days)&&b.co>iso(1)).sort((a,b)=>a.ci.localeCompare(b.ci));
+  $('#main').innerHTML=`<div class="panel glass"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2>Kalender Ketersediaan</h2><button class="btn sm" id="c_a">＋ Tambah Kamar</button></div>
+  <div style="display:flex;gap:6px;align-items:center;justify-content:center;margin:12px 0"><button class="btn sec sm" id="c_p">◀</button><b style="min-width:150px;text-align:center">${calM.toLocaleDateString('id-ID',{month:'long',year:'numeric'})}</b><button class="btn sec sm" id="c_n">▶</button></div>
+  <div class="scroll">${R.length?g:'<p style="color:var(--mu)">Belum ada kamar. Tekan “Tambah Kamar”.</p>'}</div>
+  <p style="font-size:12px;color:var(--mu)">Blok hijau = terisi · blok kosong = tersedia (ketuk untuk membuat reservasi) · hari check-out dianggap tersedia.</p>
+  <h3 style="font-size:14px">Reservasi bulan ini</h3>${mb.map(b=>`<div class="stat" style="margin-top:6px">${esc(b.room)} · ${b.ci} → ${b.co} · ${esc(b.guest||'-')}</div>`).join('')||'<small style="color:var(--mu)">Belum ada reservasi.</small>'}</div>`;
+  $('#c_p').onclick=()=>{calM=new Date(y,mo-1,1);cal()};$('#c_n').onclick=()=>{calM=new Date(y,mo+1,1);cal()};
+  $('#c_a').onclick=async()=>{const n=(prompt('Nama kamar baru:')||'').trim();if(!n)return;if(R.includes(n))return alert('Nama kamar sudah ada.');const{error}=await db.from('rooms').insert({unit_id:cur,name:n});if(error)return alert(error.message);await loadUnit(cur);cal()};
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const r=R[+b.dataset.del];if(B.some(x=>x.room===r))return alert('Kamar masih punya reservasi, tidak bisa dihapus.');if(confirm('Hapus '+r+'?')){const{error}=await db.from('rooms').delete().eq('id',D().rid[r]);if(error)return alert(error.message);await loadUnit(cur);cal()}});
+  document.querySelectorAll('.cl.bk').forEach(c=>c.onclick=()=>{const b=B.find(x=>x.id===c.dataset.b);alert(`${b.room}\nTamu: ${b.guest||'-'}\nCheck-in: ${b.ci}\nCheck-out: ${b.co}`)});
+  document.querySelectorAll('.cl[data-r]').forEach(c=>c.onclick=()=>{pre={room:R[+c.dataset.r],ci:c.dataset.d};nav('room')});
+}
+db.auth.getSession().then(({data})=>{if(data.session)openUnits()});
