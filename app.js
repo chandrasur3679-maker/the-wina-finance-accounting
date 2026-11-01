@@ -55,12 +55,12 @@ async function loadUnit(id){
   const[r,j,b]=await Promise.all([
     db.from('rooms').select('id,name').eq('unit_id',id).order('name'),
     db.from('journals').select('*, journal_lines(account,debit,credit,wallet_id)').eq('unit_id',id).order('created_at'),
-    db.from('bookings').select('id,room_id,journal_id,guest,check_in,check_out,total,paid').eq('unit_id',id)]);
+    db.from('bookings').select('id,room_id,journal_id,guest,check_in,check_out,total,paid,nationality,id_type,id_number,phone,email,pax,id_note,id_photo').eq('unit_id',id)]);
   const err=r.error||j.error||b.error;if(err)throw err;
   const nm={};r.data.forEach(x=>nm[x.id]=x.name);
   S.d[id]={n:j.data.length,w:w.data,rooms:r.data.map(x=>x.name),rid:Object.fromEntries(r.data.map(x=>[x.name,x.id])),
     j:j.data.map(x=>({id:x.id,no:x.no,date:x.date,desc:x.descr,cat:x.category,method:x.method,note:x.note,st:x.status,l:x.journal_lines.map(l=>({a:l.account,d:+l.debit,c:+l.credit,w:l.wallet_id}))})),
-    b:b.data.map(x=>({id:x.id,room:nm[x.room_id],ci:x.check_in,co:x.check_out,guest:x.guest||'',total:+x.total,paid:+x.paid}))};
+    b:b.data.map(x=>({id:x.id,room:nm[x.room_id],ci:x.check_in,co:x.check_out,guest:x.guest||'',total:+x.total,paid:+x.paid,nat:x.nationality||'',idt:x.id_type||'Paspor',idn:x.id_number||'',tel:x.phone||'',em:x.email||'',pax:x.pax||1,inote:x.id_note||'',photo:x.id_photo||''}))};
 }
 async function post(date,desc,cat,lines,method,note,extra={}){
   const td=lines.reduce((s,l)=>s+l.d,0),tc=lines.reduce((s,l)=>s+l.c,0);
@@ -88,11 +88,12 @@ function home(){
     <button class="btn sec sm" id="ca" style="margin-top:10px">Tutup</button></div></div>
   <div class="panel glass" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" data-go="wal">🏦 Rekening & Saldo</button><button class="btn sec" data-go="piu">🧾 Piutang Reservasi</button><button class="btn sec" data-go="lap">📊 Laporan</button></div>
   <div class="panel glass"><h2>Bulan Ini</h2><div class="grid" style="margin-top:10px"><div class="stat">Pendapatan<b>${Rp(pen)}</b></div><div class="stat">Beban<b>${Rp(beb)}</b></div><div class="stat">Laba / Rugi<b style="color:${pen-beb<0?'var(--er)':'var(--ok)'}">${Rp(pen-beb)}</b></div><div class="stat">Piutang<b>${Rp(bal(1103))}</b></div></div></div>
+  <div class="panel glass"><div style="display:flex;justify-content:space-between;align-items:center"><h2>Pertumbuhan Keuangan</h2><button class="btn sec sm" id="gt">${gv()?'Sembunyikan':'Tampilkan'}</button></div>${gv()?grafik():''}</div>
   <div class="panel glass"><h2>Neraca Saldo</h2><div class="scroll"><table><tr><th>Akun</th><th class="r">Debit</th><th class="r">Kredit</th></tr>
   ${tb.map(([a,b])=>`<tr><td>${a} · ${ACC[a][0]}</td><td class="r">${b>0?Rp(b):''}</td><td class="r">${b<0?Rp(-b):''}</td></tr>`).join('')||'<tr><td colspan=3 style="color:var(--mu)">Belum ada transaksi. Mulai dari menu Transaksi atau Kamar.</td></tr>'}
   </table></div></div>
   <div style="text-align:center"><button class="btn sec sm" id="th">🌓 Ganti tema</button></div>`;
-  document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go));$('#ta').onclick=()=>$('#ad').classList.remove('hide');$('#ca').onclick=()=>$('#ad').classList.add('hide');
+  document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go));$('#gt').onclick=()=>{try{localStorage.setItem('wf_grafik',gv()?'0':'1')}catch(e){}home()};$('#ta').onclick=()=>$('#ad').classList.remove('hide');$('#ca').onclick=()=>$('#ad').classList.add('hide');
   $('#th').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'};
 }
 
@@ -129,8 +130,8 @@ function hist(){
   const draw=()=>{const q=hf.q.toLowerCase();
     let L=D().j.filter(j=>(hf.del||j.st!=='Dihapus')&&(!hf.c||j.cat===hf.c)&&(!hf.m||j.method===hf.m)&&(!q||(j.desc+j.no+j.l.map(l=>ACC[l.a][0]).join(' ')).toLowerCase().includes(q)));
     L.sort((a,b)=>(a.date+a.id).localeCompare(b.date+b.id)*(hf.asc?1:-1));
-    $('#h_t').innerHTML=`<table><tr><th>Tanggal / No</th><th>Deskripsi & Akun</th><th class="r">Debit</th><th class="r">Kredit</th><th>Status</th></tr>`+(L.map(j=>`<tr><td>${j.date}<br><small>${j.no}</small></td><td>${esc(j.desc)}<br><small style="color:var(--mu)">${esc(j.cat)} · ${esc(j.method)}${j.note?' · '+esc(j.note):''}</small><br>${j.l.map(l=>`<small>${l.d?'Dr':'&nbsp;&nbsp;Kr'} ${ACC[l.a][0]}</small>`).join('<br>')}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.d,0))}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.c,0))}</td><td><span class="tag">${j.st}</span>${j.st==='Posted'?`<br><button class="btn sec sm" data-r="${j.id}" style="margin-top:6px">Balik</button> <button class="btn sec sm" data-x="${j.id}" style="margin-top:6px">Hapus</button>`:''}</td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada transaksi.</td></tr>')+'</table>';
-    document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>reverse(b.dataset.r));document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>hapus(b.dataset.x));};
+    $('#h_t').innerHTML=`<table><tr><th>Tanggal / No</th><th>Deskripsi & Akun</th><th class="r">Debit</th><th class="r">Kredit</th><th>Status</th></tr>`+(L.map(j=>`<tr><td>${j.date}<br><small>${j.no}</small></td><td>${esc(j.desc)}<br><small style="color:var(--mu)">${esc(j.cat)} · ${esc(j.method)}${j.note?' · '+esc(j.note):''}</small><br>${j.l.map(l=>`<small>${l.d?'Dr':'&nbsp;&nbsp;Kr'} ${ACC[l.a][0]}</small>`).join('<br>')}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.d,0))}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.c,0))}</td><td><span class="tag">${j.st}</span>${j.st==='Posted'?`<br><button class="btn sec sm" data-r="${j.id}" style="margin-top:6px">Balik</button> <button class="btn sec sm" data-x="${j.id}" style="margin-top:6px">Hapus</button>`:''}${j.st==='Pembalikan'?`<br><button class="btn sec sm" data-u="${j.id}" style="margin-top:6px">Batalkan Balik</button>`:''}</td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada transaksi.</td></tr>')+'</table>';
+    document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>reverse(b.dataset.r));document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>hapus(b.dataset.x));document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>batalBalik(b.dataset.u));};
   $('#h_q').oninput=e=>{hf.q=e.target.value;draw()};$('#h_c').onchange=e=>{hf.c=e.target.value;draw()};$('#h_m').onchange=e=>{hf.m=e.target.value;draw()};$('#h_d').onchange=e=>{hf.del=e.target.checked;draw()};
   $('#h_s').onclick=()=>{hf.asc=!hf.asc;hist()};draw();
 }
@@ -192,7 +193,7 @@ function cal(){
   $('#c_p').onclick=()=>{calM=new Date(y,mo-1,1);cal()};$('#c_n').onclick=()=>{calM=new Date(y,mo+1,1);cal()};
   $('#c_a').onclick=async()=>{const n=(prompt('Nama kamar baru:')||'').trim();if(!n)return;if(R.includes(n))return alert('Nama kamar sudah ada.');const{error}=await db.from('rooms').insert({unit_id:cur,name:n});if(error)return alert(error.message);await loadUnit(cur);cal()};
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const r=R[+b.dataset.del];if(B.some(x=>x.room===r))return alert('Kamar masih punya reservasi, tidak bisa dihapus.');if(confirm('Hapus '+r+'?')){const{error}=await db.from('rooms').delete().eq('id',D().rid[r]);if(error)return alert(error.message);await loadUnit(cur);cal()}});
-  document.querySelectorAll('.cl.bk').forEach(c=>c.onclick=()=>{const b=B.find(x=>x.id===c.dataset.b);alert(`${b.room}\nTamu: ${b.guest||'-'}\nCheck-in: ${b.ci}\nCheck-out: ${b.co}`)});
+  document.querySelectorAll('.cl.bk').forEach(c=>c.onclick=()=>tamu(c.dataset.b));
   document.querySelectorAll('.cl[data-r]').forEach(c=>c.onclick=()=>{pre={room:R[+c.dataset.r],ci:c.dataset.d};nav('room')});
 }
 // ---------- rekening, transfer, saldo awal ----------
@@ -290,5 +291,50 @@ function lap(){
     csv='\ufeff'+[q($('#hu').textContent+' – '+title+' ('+lf.from+' s.d. '+lf.to+')'),head.map(q).join(';')].concat(R.map(x=>x.c.map(q).join(';'))).join('\r\n'),
     a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=lf.r+'_'+lf.to+'.csv';a.click()};
 }
+
+// ---------- fitur: batalkan balik, data tamu, grafik ----------
+async function batalBalik(id){const o=D().j.find(j=>j.id===id);
+  if(!o||!confirm('Batalkan pembalikan '+o.no+'?\nTransaksi asli aktif kembali (status Posted) dan jurnal pembalik ini dihapus.'))return;
+  const{error}=await db.rpc('undo_reversal',{p_journal:id});
+  if(error)return alert(error.code==='23P01'?'Kamar sudah dipesan pada tanggal itu, reservasi tidak bisa dipulihkan.':error.message);
+  await loadUnit(cur);hist()}
+const kecil=f=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(i.src);c.toBlob(b=>b?res(b):rej(new Error('Gagal memproses foto')),'image/jpeg',.82)};i.onerror=()=>rej(new Error('File bukan gambar yang valid (gunakan JPG/PNG)'));i.src=URL.createObjectURL(f)});
+async function tamu(id){
+  const b=D().b.find(x=>x.id===id);if(!b)return cal();
+  const n=Math.round((new Date(b.co)-new Date(b.ci))/864e5);let url='';
+  if(b.photo){const r=await db.storage.from('guest-ids').createSignedUrl(b.photo,300);url=(r.data&&r.data.signedUrl)||''}
+  const I=(i,l,v,x='')=>`<div><label>${l}</label><input id="${i}" value="${esc(v)}" ${x}></div>`;
+  $('#main').innerHTML=`<div class="panel glass"><h2>Data Tamu</h2>
+  <div class="stat" style="margin:10px 0">${esc(b.room)} · ${b.ci} → ${b.co}<b>Lama tinggal: ${n} malam</b></div>
+  ${I('g_n','Nama tamu',b.guest)}
+  <div class="row2">${I('g_k','Kewarganegaraan',b.nat)}${I('g_p','Jumlah tamu',b.pax,'type="number" min="1"')}</div>
+  <div class="row2"><div><label>Jenis identitas</label><select id="g_t">${['Paspor','KTP','KITAS','SIM','Lainnya'].map(x=>`<option ${x===b.idt?'selected':''}>${x}</option>`).join('')}</select></div>${I('g_i','Nomor identitas',b.idn)}</div>
+  <div class="row2">${I('g_h','Telepon / WhatsApp',b.tel)}${I('g_e','Email',b.em)}</div>
+  <label>Catatan</label><textarea id="g_c" rows="2">${esc(b.inote)}</textarea>
+  <label>Foto paspor / identitas</label>${url?`<img src="${url}" alt="Foto identitas" style="max-width:100%;border-radius:12px;margin:6px 0;display:block">`:''}<input type="file" id="g_f" accept="image/*">
+  <p style="font-size:12px;color:var(--mu)">Data identitas bersifat sensitif. Foto disimpan privat dan hanya bisa dibuka akun pemilik.</p>
+  <div class="err" id="gm"></div><div style="display:flex;gap:8px"><button class="btn" id="g_s">Simpan</button><button class="btn sec" id="g_b">Kembali</button></div></div>`;
+  $('#g_b').onclick=cal;
+  $('#g_s').onclick=async()=>{const m=$('#gm');m.className='err';m.textContent='Menyimpan…';
+    try{let photo=b.photo;const f=$('#g_f').files[0];
+      if(f){const blob=await kecil(f),path=`${cur}/${b.id}/${Date.now()}.jpg`,up=await db.storage.from('guest-ids').upload(path,blob,{contentType:'image/jpeg'});if(up.error)throw up.error;if(b.photo)await db.storage.from('guest-ids').remove([b.photo]);photo=path}
+      const{error}=await db.from('bookings').update({guest:$('#g_n').value.trim(),nationality:$('#g_k').value.trim(),pax:+$('#g_p').value||1,id_type:$('#g_t').value,id_number:$('#g_i').value.trim(),phone:$('#g_h').value.trim(),email:$('#g_e').value.trim(),id_note:$('#g_c').value.trim(),id_photo:photo}).eq('id',b.id);
+      if(error)throw error;await loadUnit(cur);await tamu(id);$('#gm').className='err okm';$('#gm').textContent='✔ Data tamu tersimpan.'}
+    catch(e){m.textContent=e.message}};
+}
+const gv=()=>{try{return localStorage.getItem('wf_grafik')!=='0'}catch(e){return true}};
+function seri(n){const o=[],d=new Date();for(let i=n-1;i>=0;i--){const x=new Date(d.getFullYear(),d.getMonth()-i,1);o.push({k:x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0'),l:x.toLocaleDateString('id-ID',{month:'short'}),p:0,b:0})}
+  D().j.forEach(j=>{const r=o.find(x=>x.k===j.date.slice(0,7));if(!r)return;j.l.forEach(l=>{const a=String(l.a);if(a[0]=='4')r.p+=l.c-l.d;if(a[0]=='5')r.b+=l.d-l.c})});return o}
+function grafik(){
+  const s=seri(6),W=600,H=200,T=12,L=10,P=s.map(x=>x.p-x.b),mx=Math.max(1,...s.flatMap(x=>[x.p,x.b])),mn=Math.min(0,...P),y=v=>T+H-(v-mn)/(Math.max(mx,...P)-mn)*H,bw=(W-2*L)/s.length,z=y(0);
+  let g=`<line x1="${L}" x2="${W-L}" y1="${z}" y2="${z}" stroke="var(--bd)"/>`;
+  s.forEach((x,i)=>{const c=L+i*bw+bw/2,bar=(v,dx,col,nm)=>`<rect x="${c+dx}" y="${Math.min(y(v),z)}" width="22" height="${Math.max(1,Math.abs(z-y(v)))}" rx="4" fill="${col}"><title>${x.l}: ${nm} ${Rp(v)}</title></rect>`;
+    g+=bar(x.p,-24,'var(--ac)','Pendapatan')+bar(x.b,2,'var(--er)','Beban')+`<text x="${c}" y="${T+H+18}" text-anchor="middle" font-size="12" fill="var(--mu)">${x.l}</text>`});
+  const pt=i=>`${L+i*bw+bw/2},${y(P[i])}`;
+  g+=`<polyline points="${s.map((x,i)=>pt(i)).join(' ')}" fill="none" stroke="var(--tx)" stroke-width="2"/>`+s.map((x,i)=>`<circle cx="${L+i*bw+bw/2}" cy="${y(P[i])}" r="3.5" fill="var(--tx)"><title>${x.l}: Laba ${Rp(P[i])}</title></circle>`).join('');
+  const a=s[5],b=s[4],gr=b.p>0?(a.p-b.p)/b.p*100:null;
+  return `<svg viewBox="0 0 ${W} ${T+H+26}" style="width:100%;height:auto" role="img" aria-label="Grafik pendapatan, beban, dan laba 6 bulan terakhir">${g}</svg>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mu)"><span><b style="color:var(--ac)">■</b> Pendapatan</span><span><b style="color:var(--er)">■</b> Beban</span><span><b style="color:var(--tx)">●</b> Laba (rugi)</span></div>
+  <p style="font-size:13px;margin:8px 0 0">${gr===null?'Belum ada pendapatan bulan lalu sebagai pembanding.':`Pendapatan bulan ini ${gr>=0?'naik':'turun'} ${Math.abs(gr).toFixed(1)}% dibanding bulan lalu.`}</p>`}
 
 db.auth.getSession().then(({data})=>{if(data.session)openUnits()});
