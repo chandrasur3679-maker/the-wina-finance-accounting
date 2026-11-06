@@ -29,8 +29,19 @@ $('#bset').onclick=async()=>{const p=prompt('Kata sandi baru (min. 6 karakter):'
 
 // ---------- units ----------
 async function openUnits(){
-  show('units');const{data,error}=await db.from('units').select('id,name,info').order('created_at');if(error)return alert(error.message);S.units=data;$('#ulist').innerHTML=S.units.map(u=>`<div class="unit glass" data-id="${u.id}"><div class="ic">🏡</div><h3>${esc(u.name)}</h3><small style="color:var(--mu)">${esc(u.info||'Unit usaha')}</small></div>`).join('')+`<div class="unit add glass" id="addu"><div class="ic">＋</div><h3>Tambah Unit Usaha Baru</h3></div>`;
+  show('units');const{data,error}=await db.from('units').select('id,name,info').order('created_at');if(error)return alert(error.message);S.units=data;$('#ulist').innerHTML=S.units.map(u=>`<div class="unit glass" data-id="${u.id}"><div class="ic">🏡</div><h3>${esc(u.name)}</h3><small style="color:var(--mu)">${esc(u.info||'Unit usaha')}</small><div style="display:flex;gap:6px;justify-content:center;margin-top:12px;flex-wrap:wrap"><button class="btn sec sm" data-uren="${u.id}">✏️ Ganti nama</button><button class="btn sec sm" data-udel="${u.id}">🗑 Hapus</button></div></div>`).join('')+`<div class="unit add glass" id="addu"><div class="ic">＋</div><h3>Tambah Unit Usaha Baru</h3></div>`;
   document.querySelectorAll('.unit[data-id]').forEach(el=>el.onclick=()=>{el.classList.add('go');setTimeout(()=>enter(el.dataset.id),550)});
+  document.querySelectorAll('[data-uren]').forEach(b=>b.onclick=async e=>{e.stopPropagation();
+    const u=S.units.find(x=>x.id===b.dataset.uren),n=prompt('Nama unit usaha:',u.name);if(n===null)return;if(!n.trim())return alert('Nama tidak boleh kosong.');
+    const i=prompt('Informasi dasar (opsional):',u.info||'');
+    const{error}=await db.from('units').update({name:n.trim(),info:i===null?(u.info||''):i.trim()}).eq('id',u.id);if(error)return alert(error.message);openUnits()});
+  document.querySelectorAll('[data-udel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();
+    const u=S.units.find(x=>x.id===b.dataset.udel),c=await db.from('journals').select('id',{count:'exact',head:true}).eq('unit_id',u.id);
+    if(c.error)return alert(c.error.message);
+    const k=prompt('HAPUS PERMANEN unit "'+u.name+'"?\nSemua data unit ini ('+(c.count||0)+' transaksi, kamar, reservasi, rekening, foto tamu) akan hilang dan TIDAK bisa dikembalikan.\n\nKetik nama unit persis untuk melanjutkan:');
+    if(k===null)return;if(k.trim()!==u.name)return alert('Nama tidak cocok. Penghapusan dibatalkan.');
+    await bersihFoto(u.id);const{error}=await db.from('units').delete().eq('id',u.id);if(error)return alert(error.message);
+    delete S.d[u.id];openUnits()});
   $('#addu').onclick=async()=>{const n=prompt('Nama unit usaha:');if(!n||!n.trim())return;const i=prompt('Informasi dasar (alamat/keterangan, opsional):')||'';
     const{data,error}=await db.from('units').insert({name:n.trim(),info:i.trim()}).select().single();if(error)return alert(error.message);
     await db.from('rooms').insert(['Kamar 1','Kamar 2','Kamar 3','Kamar 4'].map(x=>({unit_id:data.id,name:x})));openUnits()};
@@ -337,4 +348,6 @@ function grafik(){
   <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mu)"><span><b style="color:var(--ac)">■</b> Pendapatan</span><span><b style="color:var(--er)">■</b> Beban</span><span><b style="color:var(--tx)">●</b> Laba (rugi)</span></div>
   <p style="font-size:13px;margin:8px 0 0">${gr===null?'Belum ada pendapatan bulan lalu sebagai pembanding.':`Pendapatan bulan ini ${gr>=0?'naik':'turun'} ${Math.abs(gr).toFixed(1)}% dibanding bulan lalu.`}</p>`}
 
+async function bersihFoto(uid){try{const st=db.storage.from('guest-ids'),a=await st.list(uid);
+  for(const f of a.data||[]){const b=await st.list(uid+'/'+f.name),p=(b.data||[]).map(x=>uid+'/'+f.name+'/'+x.name);if(p.length)await st.remove(p)}}catch(e){}}
 db.auth.getSession().then(({data})=>{if(data.session)openUnits()});
