@@ -141,8 +141,8 @@ function hist(){
   const draw=()=>{const q=hf.q.toLowerCase();
     let L=D().j.filter(j=>(hf.del||j.st!=='Dihapus')&&(!hf.c||j.cat===hf.c)&&(!hf.m||j.method===hf.m)&&(!q||(j.desc+j.no+j.l.map(l=>ACC[l.a][0]).join(' ')).toLowerCase().includes(q)));
     L.sort((a,b)=>(a.date+a.id).localeCompare(b.date+b.id)*(hf.asc?1:-1));
-    $('#h_t').innerHTML=`<table><tr><th>Tanggal / No</th><th>Deskripsi & Akun</th><th class="r">Debit</th><th class="r">Kredit</th><th>Status</th></tr>`+(L.map(j=>`<tr><td>${j.date}<br><small>${j.no}</small></td><td>${esc(j.desc)}<br><small style="color:var(--mu)">${esc(j.cat)} · ${esc(j.method)}${j.note?' · '+esc(j.note):''}</small><br>${j.l.map(l=>`<small>${l.d?'Dr':'&nbsp;&nbsp;Kr'} ${ACC[l.a][0]}</small>`).join('<br>')}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.d,0))}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.c,0))}</td><td><span class="tag">${j.st}</span>${j.st==='Posted'?`<br><button class="btn sec sm" data-r="${j.id}" style="margin-top:6px">Balik</button> <button class="btn sec sm" data-x="${j.id}" style="margin-top:6px">Hapus</button>`:''}${j.st==='Pembalikan'?`<br><button class="btn sec sm" data-u="${j.id}" style="margin-top:6px">Batalkan Balik</button>`:''}</td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada transaksi.</td></tr>')+'</table>';
-    document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>reverse(b.dataset.r));document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>hapus(b.dataset.x));document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>batalBalik(b.dataset.u));};
+    $('#h_t').innerHTML=`<table><tr><th>Tanggal / No</th><th>Deskripsi & Akun</th><th class="r">Debit</th><th class="r">Kredit</th><th>Status</th></tr>`+(L.map(j=>`<tr><td>${j.date}<br><small>${j.no}</small></td><td>${esc(j.desc)}<br><small style="color:var(--mu)">${esc(j.cat)} · ${esc(j.method)}${j.note?' · '+esc(j.note):''}</small><br>${j.l.map(l=>`<small>${l.d?'Dr':'&nbsp;&nbsp;Kr'} ${ACC[l.a][0]}</small>`).join('<br>')}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.d,0))}</td><td class="r">${Rp(j.l.reduce((s,l)=>s+l.c,0))}</td><td><span class="tag">${j.st}</span>${j.st==='Posted'?`<br><button class="btn sec sm" data-e="${j.id}" style="margin-top:6px">Edit</button> <button class="btn sec sm" data-r="${j.id}" style="margin-top:6px">Balik</button> <button class="btn sec sm" data-x="${j.id}" style="margin-top:6px">Hapus</button>`:''}${j.st==='Pembalikan'?`<br><button class="btn sec sm" data-u="${j.id}" style="margin-top:6px">Batalkan Balik</button>`:''}</td></tr>`).join('')||'<tr><td colspan=5 style="color:var(--mu)">Tidak ada transaksi.</td></tr>')+'</table>';
+    document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>reverse(b.dataset.r));document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>hapus(b.dataset.x));document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>batalBalik(b.dataset.u));document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>editTrx(b.dataset.e));};
   $('#h_q').oninput=e=>{hf.q=e.target.value;draw()};$('#h_c').onchange=e=>{hf.c=e.target.value;draw()};$('#h_m').onchange=e=>{hf.m=e.target.value;draw()};$('#h_d').onchange=e=>{hf.del=e.target.checked;draw()};
   $('#h_s').onclick=()=>{hf.asc=!hf.asc;hist()};draw();
 }
@@ -350,4 +350,36 @@ function grafik(){
 
 async function bersihFoto(uid){try{const st=db.storage.from('guest-ids'),a=await st.list(uid);
   for(const f of a.data||[]){const b=await st.list(uid+'/'+f.name),p=(b.data||[]).map(x=>uid+'/'+f.name+'/'+x.name);if(p.length)await st.remove(p)}}catch(e){}}
+// ---------- edit transaksi ----------
+function editTrx(id){
+  const j=D().j.find(x=>x.id===id);if(!j)return;
+  const cb=x=>x==1101||x==1102,dl=j.l.filter(l=>l.d>0),cl=j.l.filter(l=>l.c>0);
+  if(j.l.length!==2||dl.length!==1||cl.length!==1)return alert('Transaksi dengan lebih dari dua baris jurnal (mis. pendapatan kamar) tidak bisa diedit di sini. Gunakan Balik lalu catat ulang.');
+  if(cb(dl[0].a)&&cb(cl[0].a))return alert('Transfer antar rekening tidak bisa diedit. Gunakan Balik lalu catat ulang.');
+  const a0=dl[0].a,b0=cl[0].a,wl=cb(a0)?dl[0]:cb(b0)?cl[0]:null,cats=CATS.includes(j.cat)?CATS:CATS.concat([j.cat||'Lainnya']);
+  $('#main').innerHTML=`<div class="panel glass"><h2>Edit Transaksi</h2><p style="color:var(--mu);font-size:13px;margin:4px 0 0">${esc(j.no)} · nilai lama tersimpan di catatan audit</p>
+  <div class="row2"><div><label>Tanggal</label><input type="date" id="e_d" value="${j.date}"></div><div><label>Kategori</label><select id="e_c">${cats.map(c=>`<option ${c===j.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></div></div>
+  <label>Deskripsi</label><input id="e_n" value="${esc(j.desc)}">
+  <div class="row2"><div><label>Akun debit</label>${accSel('e_a')}</div><div><label>Akun kredit</label>${accSel('e_b')}</div></div>
+  <div class="row2"><div><label>Nominal (Rp)</label><input type="number" id="e_v" min="0" value="${dl[0].d}"></div><div><label>Rekening kas/bank</label>${wsel('e_w')}</div></div>
+  <label>Keterangan</label><textarea id="e_k" rows="2">${esc(j.note||'')}</textarea>
+  <label>Alasan perubahan (wajib)</label><input id="e_r" placeholder="mis. salah input nominal">
+  <div class="err" id="em"></div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="e_s">Simpan Perubahan</button><button class="btn sec" id="e_x">Batal</button></div></div>`;
+  $('#e_a').value=a0;$('#e_b').value=b0;if(wl&&wl.w)$('#e_w').value=wl.w;
+  $('#e_x').onclick=hist;
+  $('#e_s').onclick=async()=>{const m=$('#em'),a=+$('#e_a').value,b=+$('#e_b').value,v=+$('#e_v').value,n=$('#e_n').value.trim(),r=$('#e_r').value.trim(),wv=$('#e_w').value,wo=D().w.find(x=>x.id===wv);m.className='err';
+    if(!$('#e_d').value)return m.textContent='Tanggal wajib diisi.';
+    if(!n)return m.textContent='Deskripsi wajib diisi.';
+    if(!(v>0))return m.textContent='Nominal harus lebih dari nol.';
+    if(a===b)return m.textContent='Akun debit dan kredit tidak boleh sama.';
+    if(cb(a)&&cb(b))return m.textContent='Perpindahan antar kas/bank dicatat lewat menu Rekening & Saldo (Transfer).';
+    if((cb(a)||cb(b))&&(!wo||wo.acc!=(cb(a)?a:b)))return m.textContent='Pilih rekening yang sesuai dengan akun Kas/Bank yang dipakai.';
+    if(!r)return m.textContent='Alasan perubahan wajib diisi.';
+    if(!confirm('Simpan perubahan transaksi '+j.no+'? Nilai lama tersimpan di catatan audit.'))return;
+    const L=[{a,d:v,c:0,w:cb(a)?wv:null},{a:b,d:0,c:v,w:cb(b)?wv:null}];
+    const{error}=await db.rpc('edit_journal',{p_journal:id,p_date:$('#e_d').value,p_desc:n,p_cat:$('#e_c').value,p_method:cb(a)||cb(b)?mk(wo):'Lainnya',p_note:$('#e_k').value,p_lines:L,p_reason:r});
+    if(error)return m.textContent=error.message;
+    await loadUnit(cur);hist()};
+}
+
 db.auth.getSession().then(({data})=>{if(data.session)openUnits()});
