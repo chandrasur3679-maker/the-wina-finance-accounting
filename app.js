@@ -259,9 +259,10 @@ function piu(){
 }
 
 // ---------- laporan keuangan ----------
-let lf={r:'lr',from:today().slice(0,8)+'01',to:today(),acc:1101};
+let lf={r:'lr',from:today().slice(0,8)+'01',to:today(),acc:'*'};
 function lap(){
   const per=j=>j.date>=lf.from&&j.date<=lf.to,upto=j=>j.date<=lf.to;
+  const allD=()=>{const d=D().j.map(j=>j.date).sort();if(d.length){lf.from=d[0];lf.to=[today(),d[d.length-1]].sort().pop()}};
   const sA=(a,f)=>D().j.reduce((s,j)=>f(j)?s+j.l.reduce((t,l)=>t+(l.a==a?l.d-l.c:0),0):s,0);
   const ks=Object.keys(ACC),R=[],h=l=>R.push({c:[l,''],k:'h'}),r=(l,v)=>R.push({c:[l,v]}),s=(l,v)=>R.push({c:[l,v],k:'s'}),nm=a=>a+' · '+ACC[a][0],cash=a=>a==1101||a==1102;
   let head=['Keterangan','Jumlah'],title;
@@ -283,21 +284,25 @@ function lap(){
     h('Aktivitas Investasi');s('Kas bersih investasi',iv);h('Aktivitas Pendanaan');s('Kas bersih pendanaan',fn);
     if(Math.abs(sa)>.004){h('Lainnya');r('Saldo awal yang dicatat pada periode',sa)}
     const tot=o0+o1+iv+fn+sa;s('Kenaikan (penurunan) kas bersih',tot);r('Kas & bank awal periode',aw);s('Kas & bank akhir periode',aw+tot)}
-  else{title='Buku Besar – '+nm(lf.acc);head=['Tanggal','No / Keterangan','Debit','Kredit','Saldo'];
-    const sg=ACC[lf.acc][1]==='K'?-1:1;let sd=sg*sA(lf.acc,j=>j.date<lf.from);R.push({c:['','Saldo awal','','',sd],k:'s'});
-    D().j.filter(per).slice().sort((a,b)=>(a.date+a.no).localeCompare(b.date+b.no)).forEach(j=>j.l.forEach(l=>{if(l.a==lf.acc){sd+=sg*(l.d-l.c);R.push({c:[j.date,j.no+' · '+j.desc,l.d||'',l.c||'',sd]})}}));
-    R.push({c:['','Saldo akhir','','',sd],k:'s'})}
+  else{const all=lf.acc==='*',list=all?ks:[String(lf.acc)];let gd=0,gk=0,n=0;title='Buku Besar – '+(all?'Semua Akun':nm(lf.acc));head=['Tanggal','No / Keterangan','Debit','Kredit','Saldo'];
+    list.forEach(a=>{const sg=ACC[a][1]==='K'?-1:1,E=[],aw=sg*sA(a,j=>j.date<lf.from);let sd=aw,td=0,tk=0;
+      D().j.filter(per).slice().sort((x,y)=>(x.date+x.no).localeCompare(y.date+y.no)).forEach(j=>j.l.forEach(l=>{if(l.a==a){sd+=sg*(l.d-l.c);td+=l.d;tk+=l.c;E.push({c:[j.date,j.no+' · '+j.desc+(j.st&&j.st!=='Posted'?' ['+j.st+']':''),l.d||'',l.c||'',sd]})}}));
+      if(all&&!E.length&&Math.abs(aw)<.004)return;
+      if(all)h(nm(a));R.push({c:['','Saldo awal','','',aw],k:'s'});E.forEach(x=>R.push(x));n+=E.length;gd+=td;gk+=tk;
+      R.push({c:['','Total mutasi',td,tk,''],k:'s'});R.push({c:['','Saldo akhir','','',sd],k:'s'})});
+    if(all)R.push({c:['','TOTAL SEMUA AKUN ('+n+' baris jurnal)',gd,gk,''],k:'s'})}
   const cell=x=>typeof x==='number'?`<td class="r">${Rp(x)}</td>`:`<td>${esc(x)}</td>`;
   $('#main').innerHTML=`<div class="panel glass"><h2>Laporan Keuangan</h2>
   <div class="row2"><div><label>Laporan</label><select id="l_r">${[['lr','Laba Rugi'],['nr','Neraca'],['ak','Arus Kas'],['bb','Buku Besar']].map(x=>`<option value="${x[0]}" ${lf.r===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>
-  <div ${lf.r==='bb'?'':'class="hide"'}><label>Akun</label><select id="l_a">${ks.map(a=>`<option value="${a}" ${lf.acc==a?'selected':''}>${nm(a)}</option>`).join('')}</select></div></div>
+  <div ${lf.r==='bb'?'':'class="hide"'}><label>Akun</label><select id="l_a"><option value="*" ${lf.acc==='*'?'selected':''}>Semua akun</option>${ks.map(a=>`<option value="${a}" ${lf.acc==a?'selected':''}>${nm(a)}</option>`).join('')}</select></div></div>
   <div class="row2"><div ${lf.r==='nr'?'class="hide"':''}><label>Dari tanggal</label><input type="date" id="l_f" value="${lf.from}"></div><div><label>${lf.r==='nr'?'Per tanggal':'Sampai tanggal'}</label><input type="date" id="l_t" value="${lf.to}"></div></div>
+  <button class="btn sec sm" id="l_all" style="margin-top:8px">Semua tanggal</button>
   <h3 style="margin:14px 0 6px;font-size:15px">${esc(title)}</h3>
   <div class="scroll"><table><tr>${head.map((x,i)=>`<th class="${i>(head.length>2?1:0)?'r':''}">${x}</th>`).join('')}</tr>
   ${R.map(x=>x.k==='h'?`<tr><td colspan="${head.length}" style="font-weight:700;color:var(--ac)">${esc(x.c[0])}</td></tr>`:`<tr style="${x.k==='s'?'font-weight:700':''}">${x.c.map(cell).join('')}</tr>`).join('')}</table></div>
   <button class="btn sec sm" id="l_x" style="margin-top:10px">⬇ Ekspor CSV</button></div>`;
   const on=(id,f)=>{const e=$(id);if(e)e.onchange=()=>{f(e.value);lap()}};
-  on('#l_r',v=>lf.r=v);on('#l_a',v=>lf.acc=+v);on('#l_f',v=>lf.from=v||lf.from);on('#l_t',v=>lf.to=v||lf.to);
+  on('#l_r',v=>{lf.r=v;if(v==='bb'&&!lf.bbAll){lf.bbAll=1;allD()}});on('#l_a',v=>lf.acc=v==='*'?'*':+v);$('#l_all').onclick=()=>{allD();lap()};on('#l_f',v=>lf.from=v||lf.from);on('#l_t',v=>lf.to=v||lf.to);
   $('#l_x').onclick=()=>{const q=x=>'"'+String(x).replace(/"/g,'""')+'"',
     csv='\ufeff'+[q($('#hu').textContent+' – '+title+' ('+lf.from+' s.d. '+lf.to+')'),head.map(q).join(';')].concat(R.map(x=>x.c.map(q).join(';'))).join('\r\n'),
     a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=lf.r+'_'+lf.to+'.csv';a.click()};
